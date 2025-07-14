@@ -1,6 +1,6 @@
 {
   "name": "Apollo M-1",
-  "version": "1.0",
+  "version": "25.7.14.1",
   "home_assistant_domain": "wled",
   "builds": [
     {
