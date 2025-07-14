@@ -1159,16 +1159,16 @@ class AudioReactive : public Usermod {
 #endif
     // new "V2" audiosync struct - 44 Bytes
     struct __attribute__ ((packed)) audioSyncPacket {  // WLEDMM "packed" ensures that there are no additional gaps
-      char    header[6];      //  06 Bytes  offset 0
+      char    header[6];      //  06 Bytes  offset 0 - "00002" for protocol version 2 ( includes \0 for c-style string termination) 
       uint8_t pressure[2];    //  02 Bytes, offset 6  - sound pressure as fixed point (8bit integer,  8bit fraction) 
       float   sampleRaw;      //  04 Bytes  offset 8  - either "sampleRaw" or "rawSampleAgc" depending on soundAgc setting
       float   sampleSmth;     //  04 Bytes  offset 12 - either "sampleAvg" or "sampleAgc" depending on soundAgc setting
       uint8_t samplePeak;     //  01 Bytes  offset 16 - 0 no peak; >=1 peak detected. In future, this will also provide peak Magnitude
-      uint8_t frameCounter;   //  01 Bytes  offset 17 - track duplicate/out of order packets
-      uint8_t fftResult[16];  //  16 Bytes  offset 18
-      uint16_t zeroCrossingCount; // 02 Bytes, offset 34
-      float  FFT_Magnitude;   //  04 Bytes  offset 36
-      float  FFT_MajorPeak;   //  04 Bytes  offset 40
+      uint8_t frameCounter;   //  01 Bytes  offset 17 - rolling counter to track duplicate/out of order packets
+      uint8_t fftResult[16];  //  16 Bytes  offset 18 - 16 GEQ channels, each channel has one byte (uint8_t)
+      uint16_t zeroCrossingCount; // 02 Bytes, offset 34 - number of zero crossings seen in 23ms
+      float  FFT_Magnitude;   //  04 Bytes  offset 36 - largest FFT result from a single run (raw value, can go up to 4096)
+      float  FFT_MajorPeak;   //  04 Bytes  offset 40 - frequency (Hz) of largest FFT result
     };
 
     // old "V1" audiosync struct - 83 Bytes payload, 88 bytes total - for backwards compatibility
@@ -1836,53 +1836,61 @@ class AudioReactive : public Usermod {
       agcSensitivity = 128.0f; // substitute - V1 format does not include this value
     }
 
-    bool receiveAudioData()   // check & process new data. return TRUE in case that new audio data was received. 
-    {
+    bool receiveAudioData() {
       if (!udpSyncConnected) return false;
       bool haveFreshData = false;
-
       size_t packetSize = 0;
-      // WLEDMM use exception handler to catch out-of-memory errors
-      #if __cpp_exceptions
-        try{
+      static uint8_t fftUdpBuffer[UDPSOUND_MAX_PACKET + 1] = {0};
+      size_t lastValidPacketSize = 0;
+
+      // Loop to read all available packets
+      while (true) {
+        #if __cpp_exceptions
+        try {
           packetSize = fftUdp.parsePacket();
-        } catch(...) {
-          packetSize = 0; // low heap memory -> discard packet.
-#ifdef ARDUINO_ARCH_ESP32
-          fftUdp.flush();  // this does not work on 8266
-#endif
+        } catch (...) {
+          packetSize = 0;
+          #ifdef ARDUINO_ARCH_ESP32
+          fftUdp.flush();
+          #endif
           DEBUG_PRINTLN(F("receiveAudioData: parsePacket out of memory exception caught!"));
           USER_FLUSH();
+          continue; // Skip to next iteration
         }
-      #else
+        #else
         packetSize = fftUdp.parsePacket();
-      #endif
+        #endif
 
-#ifdef ARDUINO_ARCH_ESP32
-      if ((packetSize > 0) && ((packetSize < 5) || (packetSize > UDPSOUND_MAX_PACKET))) fftUdp.flush(); // discard invalid packets (too small or too big)
-#endif
-      if ((packetSize > 5) && (packetSize <= UDPSOUND_MAX_PACKET)) {
-        static uint8_t fftUdpBuffer[UDPSOUND_MAX_PACKET+1] = { 0 }; // static buffer for receiving, to reuse the same memory and avoid heap fragmentation
-        //DEBUGSR_PRINTLN("Received UDP Sync Packet");
-        fftUdp.read(fftUdpBuffer, packetSize);
+        #ifdef ARDUINO_ARCH_ESP32
+        if ((packetSize > 0) && ((packetSize < 5) || (packetSize > UDPSOUND_MAX_PACKET))) {
+          fftUdp.flush();
+          continue; // Skip invalid packets
+        }
+        #endif
 
-        // VERIFY THAT THIS IS A COMPATIBLE PACKET
-        if (packetSize == sizeof(audioSyncPacket) && (isValidUdpSyncVersion((const char *)fftUdpBuffer))) {
+        if (packetSize == 0) break; // No more packets available
+
+        if ((packetSize > 5) && (packetSize <= UDPSOUND_MAX_PACKET)) {
+          fftUdp.read(fftUdpBuffer, packetSize);
+          lastValidPacketSize = packetSize;
+        }
+      }
+
+      // Process only the last valid packet
+      if (lastValidPacketSize > 0) {
+        if (lastValidPacketSize == sizeof(audioSyncPacket) && (isValidUdpSyncVersion((const char *)fftUdpBuffer))) {
           receivedFormat = 2;
-          haveFreshData = decodeAudioData(packetSize, fftUdpBuffer);
-          //DEBUGSR_PRINTLN("Finished parsing UDP Sync Packet v2");
+          haveFreshData = decodeAudioData(lastValidPacketSize, fftUdpBuffer);
+        } else if (lastValidPacketSize == sizeof(audioSyncPacket_v1) && (isValidUdpSyncVersion_v1((const char *)fftUdpBuffer))) {
+          decodeAudioData_v1(lastValidPacketSize, fftUdpBuffer);
+          receivedFormat = 1;
+          haveFreshData = true;
         } else {
-          if (packetSize == sizeof(audioSyncPacket_v1) && (isValidUdpSyncVersion_v1((const char *)fftUdpBuffer))) {
-            decodeAudioData_v1(packetSize, fftUdpBuffer);
-            receivedFormat = 1;
-            //DEBUGSR_PRINTLN("Finished parsing UDP Sync Packet v1");
-            haveFreshData = true;
-          } else receivedFormat = 0; // unknown format
+          receivedFormat = 0; // unknown format
         }
       }
       return haveFreshData;
     }
-
 
     //////////////////////
     // usermod functions//
@@ -2319,6 +2327,7 @@ class AudioReactive : public Usermod {
           static float syncVolumeSmth = 0;
           bool have_new_sample = false;
           if (millis() - lastTime > delayMs) {
+            // DEBUG_PRINTF(F("AR reading at %d compared to %d max\n"), millis() - lastTime, delayMs); // TroyHacks
             have_new_sample = receiveAudioData();
             if (have_new_sample) {
               last_UDPTime = millis();

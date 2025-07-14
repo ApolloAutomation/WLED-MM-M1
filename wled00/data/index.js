@@ -3324,6 +3324,8 @@ function genPresets()
 				}
 				addToPlaylist("All", ef.id, "ALL");
 				if(ef.name.startsWith("Y💡")) addToPlaylist("AnimARTrix", ef.id, "AM");
+				if(ef.name.startsWith("PS ")) addToPlaylist("Particle System", ef.id, "PS");
+
 				if (m.includes("1")) addToPlaylist("All 1D", ef.id, "1D");
 				if (m.includes("2")) addToPlaylist("All 2D", ef.id, "2D");
 

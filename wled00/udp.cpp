@@ -153,11 +153,27 @@ void notify(byte callMode, bool followUp)
 void realtimeLock(uint32_t timeoutMs, byte md)
 {
   if (!realtimeMode && !realtimeOverride) {
+    // this code runs once when we enter realtime mode
+    // WLEDMM begin - we need to init segment caches before putting any pixels
+    USER_PRINT(F("realtimeLock() entering realtime mode [timeoutMs="));
+    USER_PRINT(timeoutMs); USER_PRINT(",mode="); USER_PRINT(md);
+    if (useMainSegmentOnly) { USER_PRINTLN(F(", main segment only].")); } else { USER_PRINTLN(F("]."));}
+    USER_FLUSH();
+
+    if (strip.isServicing()) {
+      USER_PRINTLN(F("realtimeLock() entering RTM: strip is still drawing effects."));
+      strip.waitUntilIdle();
+    }
+    strip.service(); // WLEDMM make sure that all segments are properly initialized
+    busses.invalidateCache(true);
+    // WLEDMM end
+
     uint16_t stop, start;
     if (useMainSegmentOnly) {
       Segment& mainseg = strip.getMainSegment();
       start = mainseg.start;
       stop  = mainseg.stop;
+      mainseg.map1D2D = M12_Pixels; // WLEDMM no mapping
       mainseg.freeze = true;
     } else {
       start = 0;
@@ -185,6 +201,8 @@ void realtimeLock(uint32_t timeoutMs, byte md)
   if (realtimeOverride) return;
   if (arlsForceMaxBri) strip.setBrightness(scaledBri(255), true);
   if (briT > 0 && md == REALTIME_MODE_GENERIC) strip.show();
+
+  if (realtimeMode && !realtimeOverride && useMainSegmentOnly) strip.getMainSegment().startFrame(); // WLEDMM make sure the main segment is ready for drawing
 }
 
 void exitRealtime() {
@@ -199,6 +217,8 @@ void exitRealtime() {
   } else {
     strip.show(); // possible fix for #3589
   }
+  busses.invalidateCache(false);  // WLEDMM
+  USER_PRINTLN(F("exitRealtime() realtime mode ended."));
   updateInterfaces(CALL_MODE_WS_SEND);
 }
 
@@ -866,7 +886,7 @@ uint8_t IRAM_ATTR_YN realtimeBroadcast(uint8_t type, IPAddress client, uint16_t 
     {
       static unsigned long artnetlimiter = micros()+(1000000/fps_limit);
       while (artnetlimiter > micros()) {
-        delayMicroseconds(10); // Make WLED obey fps_limit and just delay here until we're ready to send a frame.
+        delayMicroseconds(100); // Make WLED obey fps_limit and just delay here until we're ready to send a frame.
       }
 
       /*
@@ -891,7 +911,7 @@ uint8_t IRAM_ATTR_YN realtimeBroadcast(uint8_t type, IPAddress client, uint16_t 
       const uint_fast16_t ARTNET_CHANNELS_PER_PACKET = isRGBW?512:510; // 512/4=128 RGBW LEDs, 510/3=170 RGB LEDs
       
       uint_fast16_t bufferOffset = 0;
-      uint_fast16_t hardware_output_universe = 0;
+      uint_fast16_t hardware_output_universe = e131Universe; // start at the universe defined in Sync Setup
       
       sequenceNumber++;
 
