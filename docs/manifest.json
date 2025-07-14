@@ -6,7 +6,7 @@
     {
       "chipFamily": "ESP32-S3",
       "parts": [
-        { "path": "WLEDMM_14.5.0_Apollo_M-1-Rev2_esp32s3.bin", "offset": 65536 }
+        { "path": "merged-firmware.bin", "offset": 0 }
       ]
     }
   ]
