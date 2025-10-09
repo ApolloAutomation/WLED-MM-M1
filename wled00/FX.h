@@ -186,7 +186,7 @@ bool strip_uses_global_leds(void) __attribute__((pure));  // WLEDMM implemented 
 #define FX_MODE_TWO_DOTS                50
 #define FX_MODE_FAIRYTWINKLE            51  //was Two Areas prior to 0.13.0-b6 (use "Two Dots" with full intensity)
 #define FX_MODE_RUNNING_DUAL            52
-// #define FX_MODE_HALLOWEEN               53  // removed in 0.14!
+#define FX_MODE_IMAGE                   53
 #define FX_MODE_TRICOLOR_CHASE          54
 #define FX_MODE_TRICOLOR_WIPE           55
 #define FX_MODE_TRICOLOR_FADE           56
@@ -337,7 +337,40 @@ bool strip_uses_global_leds(void) __attribute__((pure));  // WLEDMM implemented 
 #define FX_MODE_GEQLASER               195 // WLED-MM GEQ Laser
 #define FX_MODE_2DPAINTBRUSH           196 // WLED-MM Paintbrush
 #define FX_MODE_2DSNOWFALL             197 // WLED-MM Snowfall
-#define MODE_COUNT                     198
+
+// Particle FX
+#define FX_MODE_PARTICLEVOLCANO        198
+#define FX_MODE_PARTICLEFIRE           199
+#define FX_MODE_PARTICLEFIREWORKS      200
+#define FX_MODE_PARTICLEVORTEX         201
+#define FX_MODE_PARTICLEPERLIN         202
+#define FX_MODE_PARTICLEPIT            203
+#define FX_MODE_PARTICLEBOX            204
+#define FX_MODE_PARTICLEATTRACTOR      205
+#define FX_MODE_PARTICLEIMPACT         206
+#define FX_MODE_PARTICLEWATERFALL      207
+#define FX_MODE_PARTICLESPRAY          208
+#define FX_MODE_PARTICLESGEQ           209
+#define FX_MODE_PARTICLECENTERGEQ      210
+#define FX_MODE_PARTICLEGHOSTRIDER     211
+#define FX_MODE_PARTICLEBLOBS          212
+#define FX_MODE_PSDRIP                 213
+#define FX_MODE_PSPINBALL              214
+#define FX_MODE_PSDANCINGSHADOWS       215
+#define FX_MODE_PSFIREWORKS1D          216
+#define FX_MODE_PSSPARKLER             217
+#define FX_MODE_PSHOURGLASS            218
+#define FX_MODE_PS1DSPRAY              219
+#define FX_MODE_PSBALANCE              220
+#define FX_MODE_PSCHASE                221
+#define FX_MODE_PSSTARBURST            222
+#define FX_MODE_PS1DGEQ                223
+#define FX_MODE_PSFIRE1D               224
+#define FX_MODE_PS1DSONICSTREAM        225
+#define FX_MODE_PS1DSONICBOOM          226
+#define FX_MODE_PS1DSPRINGY            227
+
+#define MODE_COUNT                     228
 
 typedef enum mapping1D2D {
   M12_Pixels = 0,
@@ -607,12 +640,18 @@ typedef struct Segment {
     // transition functions
     void     startTransition(uint16_t dur); // transition has to start before actual segment values change
     void     handleTransition(void);
-    uint16_t progress(void) const; //transition progression between 0-65535
+    // transition progression between 0-65535
+    [[gnu::hot]] inline uint16_t progress() const {
+      if (!transitional || !_t) return 0xFFFFU;
+      unsigned long timeNow = millis();
+      if (timeNow - _t->_start > _t->_dur || _t->_dur == 0) return 0xFFFFU;
+      return (timeNow - _t->_start) * 0xFFFFU / _t->_dur;
+    }
 
     // WLEDMM method inlined for speed (its called at each setPixelColor)
-    inline uint8_t  currentBri(uint8_t briNew, bool useCct = false) {
-      uint32_t prog = (transitional && _t) ? progress() : 0xFFFFU;
-      if (transitional && _t && prog < 0xFFFFU) {
+    [[gnu::hot]] inline uint8_t currentBri(uint8_t briNew, bool useCct = false) const {
+      uint32_t prog = progress();
+      if (prog < 0xFFFFU) {  // progress() < 0xFFFFU implies that _t is valid (see progress() function)
         if (useCct) return ((briNew * prog) + _t->_cctT * (0xFFFFU - prog)) >> 16;
         else        return ((briNew * prog) + _t->_briT * (0xFFFFU - prog)) >> 16;
       } else {
@@ -703,7 +742,7 @@ typedef struct Segment {
     void deletejMap(); //WLEDMM jMap
   
   #ifndef WLED_DISABLE_2D
-    inline uint16_t XY(uint_fast16_t x, uint_fast16_t y)  const  { // support function to get relative index within segment (for leds[]) // WLEDMM inline for speed
+    [[gnu::hot]] inline uint16_t XY(uint_fast16_t x, uint_fast16_t y)  const  { // support function to get relative index within segment (for leds[]) // WLEDMM inline for speed
       uint_fast16_t width  = max(uint16_t(1), virtualWidth());   // segment width in logical pixels  -- softhack007 avoid div/0
       uint_fast16_t height = max(uint16_t(1), virtualHeight());  // segment height in logical pixels -- softhack007 avoid div/0
       return (x%width) + (y%height) * width;
@@ -711,7 +750,7 @@ typedef struct Segment {
 
 #ifdef WLEDMM_FASTPATH
     // WLEDMM this is a "gateway" function - we either call _fast or fall back to "slow" 
-    inline void setPixelColorXY(int x, int y, uint32_t col) {
+    [[gnu::hot]] inline void setPixelColorXY(int x, int y, uint32_t col) {
       if (!_isSimpleSegment) { // slow path
         setPixelColorXY_slow(x, y, col);
       } else {                 // fast path
@@ -724,7 +763,7 @@ typedef struct Segment {
         setPixelColorXY_fast(x, y, col, scaled_col, int(_2dWidth), int(_2dHeight));       // call "fast" function
       }
     }
-    inline uint32_t getPixelColorXY(int x, int y) const {
+    [[gnu::hot]] inline uint32_t getPixelColorXY(int x, int y) const {
       // minimal sanity checks
       if (!_isValid2D) return 0;                                                // not active
       if ((unsigned(x) >= _2dWidth) || (unsigned(y) >= _2dHeight)) return 0 ;   // check if (x,y) are out-of-range - due to 2's complement, this also catches negative values
@@ -1080,7 +1119,7 @@ class WS2812FX {  // 96 bytes
 #endif
 
     std::vector<segment> _segments;
-    friend class Segment;
+    friend struct Segment;
 
     uint32_t getPixelColorXYRestored(uint16_t x, uint16_t y)  const;  // WLEDMM gets the original color from the driver (without downscaling by _bri)
 

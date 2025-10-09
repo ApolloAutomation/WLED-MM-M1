@@ -677,13 +677,14 @@ class ES8311Source : public I2SSource {
 
     void _es8311InitAdc() {
       // 
-      // Currently only tested with the ESP32-P4 EV board with the onboard mic.
+      // Currently only tested with the ESP32-P4 boards with the onboard mic.
       // Datasheet with I2C commands: https://dl.xkwy2018.com/downloads/RK3588/01_Official%20Release/04_Product%20Line%20Branch_NVR/02_Key%20Device%20Specifications/ES8311%20DS.pdf
+      // If making changes, make sure to completely power off the board - sometimes settings are kept until the board is powered off!
       //
       _es8311I2cBegin(); 
       _es8311I2cWrite(0x00, 0b00011111); // RESET, default value
       _es8311I2cWrite(0x45, 0b00000000); // GP, default value
-      _es8311I2cWrite(0x01, 0b00111010); // CLOCK MANAGER was 0b00110000 trying 0b00111010 (MCLK enable?)
+      _es8311I2cWrite(0x01, 0b00111010); // CLOCK MANAGER (MCLK enable?)
 
       _es8311I2cWrite(0x02, 0b00000000); // 22050hz calculated
       _es8311I2cWrite(0x05, 0b00000000); // 22050hz calculated
@@ -693,26 +694,23 @@ class ES8311Source : public I2SSource {
       _es8311I2cWrite(0x08, 0b11111111); // 22050hz calculated
       _es8311I2cWrite(0x06, 0b11100011); // 22050hz calculated
 
-      _es8311I2cWrite(0x16, 0b00100000); // ADC was 0b00000011 trying 0b00100100 now 
+      _es8311I2cWrite(0x16, 0b00100100); // ADC synchronize filter counter with "standard" LRCK and ADC RAM clear when lrck/adc_mclk active
       _es8311I2cWrite(0x0B, 0b00000000); // SYSTEM at default
-      _es8311I2cWrite(0x0C, 0b00100000); // SYSTEM was 0b00001111 trying 0b00100000
-      _es8311I2cWrite(0x10, 0b00010011); // SYSTEM was 0b00011111 trying 0b00010011
-      _es8311I2cWrite(0x11, 0b01111100); // SYSTEM was 0b01111111 trying 0b01111100
-      _es8311I2cWrite(0x00, 0b11000000); // *** RESET (again - seems important?)
-      _es8311I2cWrite(0x01, 0b00111010); // CLOCK MANAGER was 0b00111111 trying 0b00111010 (again??)
-      _es8311I2cWrite(0x14, 0b00010000); // *** SYSTEM was 0b00011010 trying 0b00010000 (or 0b01111010) (PGA gain)
-      _es8311I2cWrite(0x12, 0b00000000); // SYSTEM - DAC, likely don't care
-      _es8311I2cWrite(0x13, 0b00010000); // SYSTEM - output, likely don't cate
-      _es8311I2cWrite(0x09, 0b00001000); // SDP IN (likely don't care) was 0b00001100 (16-bit) - changed to 0b00001000 (I2S 32-bit)
-      _es8311I2cWrite(0x0A, 0b00001000); // *** SDP OUT, was 0b00001100 trying 0b00001000 (I2S 32-bit)
-      _es8311I2cWrite(0x0E, 0b00000010); // *** SYSTEM was 0b00000010 trying 0b00011010 (seems best so far!) (or 0b00000010)
-      _es8311I2cWrite(0x0F, 0b01000100); // SYSTEM was 0b01000100
-      _es8311I2cWrite(0x15, 0b00000000); // ADC soft ramp (disabled)
-      _es8311I2cWrite(0x1B, 0b00000101); // ADC soft-mute was 0b00000101
-      _es8311I2cWrite(0x1C, 0b01100101); // ADC EQ and offset freeze was 0b01100101 (bad at 0b00101100)
-      _es8311I2cWrite(0x17, 0b10111111); // ADC volume was 0b11111111 trying ADC volume 0b10111111 = 0db (maxgain) 0x16
-      _es8311I2cWrite(0x44, 0b00000000); // 0b10000000 - loopback test. on: 0x88; off: 0x00; mic--" speak
-
+      _es8311I2cWrite(0x0C, 0b00100000); // SYSTEM power up things
+      _es8311I2cWrite(0x10, 0b00010011); // SYSTEM internal things
+      _es8311I2cWrite(0x11, 0b01111100); // *** SYSTEM undocumented bits, seems to be important
+      _es8311I2cWrite(0x01, 0b00111010); // *** CLOCK MANAGER
+      _es8311I2cWrite(0x14, 0b00010000); // *** SYSTEM PGA gain
+      _es8311I2cWrite(0x0A, 0b00001000); // *** SDP OUT = I2S 32-bit
+      _es8311I2cWrite(0x0E, 0b00000010); // *** SYSTEM undocumented bits, seems to be important
+      _es8311I2cWrite(0x0F, 0b01000100); // SYSTEM enable LPPGA and LPDACVRP in low power mode. No idea.
+      _es8311I2cWrite(0x15, 0b00010000); // ADC soft ramp
+      _es8311I2cWrite(0x1B, 0b00000101); // ADC soft-mute enabled
+      _es8311I2cWrite(0x1C, 0b11100101); // ADC dynamic HPF enabled
+      _es8311I2cWrite(0x17, 0b10111111); // ADC volume = 0db (max gain)
+      _es8311I2cWrite(0x18, 0b11001000); // ADC ALC enabled and AutoMute enabled
+      _es8311I2cWrite(0x19, 0b11110000); // ADC ALC max (-6dB) and min (-30dB)
+      _es8311I2cWrite(0x00, 0b10000000); // *** RESET (This is very required! Thanks to ESPHome for the hint!)
     }
 
   public:

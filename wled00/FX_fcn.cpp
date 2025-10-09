@@ -93,9 +93,9 @@ Segment::Segment(const Segment &orig) {
   _dataLen = 0;
   _t = nullptr;
   if (ledsrgb && !Segment::_globalLeds) {ledsrgb = nullptr; ledsrgbSize = 0;}  // WLEDMM
-  if (orig.name) { name = new char[strlen(orig.name)+1]; if (name) strcpy(name, orig.name); }
+  if (orig.name) { name = new(std::nothrow) char[strlen(orig.name)+1]; if (name) strcpy(name, orig.name); }
   if (orig.data) { if (allocateData(orig._dataLen)) memcpy(data, orig.data, orig._dataLen); }
-  //if (orig._t)   { _t = new Transition(orig._t->_dur, orig._t->_briT, orig._t->_cctT, orig._t->_colorT); }
+  //if (orig._t)   { _t = new(std::nothrow) Transition(orig._t->_dur, orig._t->_briT, orig._t->_cctT, orig._t->_colorT); }
   //else markForReset(); // WLEDMM
   // if (orig.ledsrgb && !Segment::_globalLeds) { allocLeds(); if (ledsrgb) memcpy(ledsrgb, orig.ledsrgb, sizeof(CRGB)*length()); } // WLEDMM
   jMap = nullptr; //WLEDMM jMap
@@ -178,9 +178,9 @@ Segment& Segment::operator= (const Segment &orig) {
     //if (!Segment::_globalLeds) {ledsrgb = oldLeds; ledsrgbSize = oldLedsSize;}; // WLEDMM reuse leds instead of ledsrgb = nullptr;
     if (!Segment::_globalLeds) {ledsrgb = nullptr; ledsrgbSize = 0;};             // WLEDMM copy has no buffers (yet)
     // copy source data
-    if (orig.name) { name = new char[strlen(orig.name)+1]; if (name) strcpy(name, orig.name); }
+    if (orig.name) { name = new(std::nothrow) char[strlen(orig.name)+1]; if (name) strcpy(name, orig.name); }
     if (orig.data) { if (allocateData(orig._dataLen)) memcpy(data, orig.data, orig._dataLen); }
-    //if (orig._t)   { _t = new Transition(orig._t->_dur, orig._t->_briT, orig._t->_cctT, orig._t->_colorT); }
+    //if (orig._t)   { _t = new(std::nothrow) Transition(orig._t->_dur, orig._t->_briT, orig._t->_cctT, orig._t->_colorT); }
     //else markForReset(); // WLEDMM
     //if (orig.ledsrgb && !Segment::_globalLeds) { allocLeds(); if (ledsrgb) memcpy(ledsrgb, orig.ledsrgb, sizeof(CRGB)*length()); } // WLEDMM don't copy old buffer
     jMap = nullptr; //WLEDMM jMap
@@ -278,6 +278,9 @@ void Segment::resetIfRequired() {
     reset = false; // setOption(SEG_OPTION_RESET, false);
     startFrame();   // WLEDMM update cached propoerties
     if (isActive() && !freeze) { fill(BLACK); needsBlank = false; } // WLEDMM start clean
+    #ifdef WLED_ENABLE_GIF
+    endImagePlayback(this);
+    #endif
     DEBUG_PRINTLN("Segment reset");
   } else if (needsBlank) {
     startFrame();   // WLEDMM update cached propoerties
@@ -441,7 +444,7 @@ void Segment::startTransition(uint16_t dur) {
   uint32_t _colorT[NUM_COLORS];
   for (size_t i=0; i<NUM_COLORS; i++) _colorT[i] = currentColor(i, colors[i]);
 
-  if (!_t) _t = new Transition(dur); // no previous transition running
+  if (!_t) _t = new(std::nothrow) Transition(dur); // no previous transition running
   if (!_t) return; // failed to allocate data
   _t->_briT  = _briT;
   _t->_cctT  = _cctT;
@@ -451,6 +454,8 @@ void Segment::startTransition(uint16_t dur) {
   transitional = true; // setOption(SEG_OPTION_TRANSITIONAL, true);
 }
 
+// WLEDMM Segment::progress() is declared inline, see FX.h
+#if 0
 // transition progression between 0-65535
 uint16_t IRAM_ATTR_YN Segment::progress() const {
   if (!transitional || !_t) return 0xFFFFU;
@@ -458,10 +463,11 @@ uint16_t IRAM_ATTR_YN Segment::progress() const {
   if (timeNow - _t->_start > _t->_dur || _t->_dur == 0) return 0xFFFFU;
   return (timeNow - _t->_start) * 0xFFFFU / _t->_dur;
 }
+#endif
 
 // WLEDMM Segment::currentBri() is declared inline, see FX.h
 #if 0
-uint8_t IRAM_ATTR_YN Segment::currentBri(uint8_t briNew, bool useCct) {
+uint8_t IRAM_ATTR_YN Segment::currentBri(uint8_t briNew, bool useCct) const {
   uint32_t prog = (transitional && _t) ? progress() : 0xFFFFU;
   if (transitional && _t && prog < 0xFFFFU) {
     if (useCct) return ((briNew * prog) + _t->_cctT * (0xFFFFU - prog)) >> 16;
@@ -473,7 +479,7 @@ uint8_t IRAM_ATTR_YN Segment::currentBri(uint8_t briNew, bool useCct) {
 #endif
 
 uint8_t Segment::currentMode(uint8_t newMode) {
-  return (progress()>32767U) ? newMode : _t->_modeP; // change effect in the middle of transition
+  return (progress()>32767U) ? newMode : (_t ? _t->_modeP : newMode); // change effect in the middle of transition
 }
 
 uint32_t Segment::currentColor(uint8_t slot, uint32_t colorNew) {
@@ -755,7 +761,7 @@ class JMapC {
             ArrayAndSize arrayAndSize;
             arrayAndSize.size = 0;
             if (arrayChunk[0].is<JsonArray>()) { //if array of arrays
-              arrayAndSize.array = new XandY[arrayChunk.size()];
+              arrayAndSize.array = new(std::nothrow) XandY[arrayChunk.size()];
               for (JsonVariant arrayElement: arrayChunk) {
                 maxWidth = max((uint16_t)maxWidth, arrayElement[0].as<uint16_t>());       // WLEDMM use native min/max
                 maxHeight = max((uint16_t)maxHeight, arrayElement[1].as<uint16_t>());     // WLEDMM
@@ -766,7 +772,7 @@ class JMapC {
               }
             }
             else { // if array (of x and y)
-              arrayAndSize.array = new XandY[1];
+              arrayAndSize.array = new(std::nothrow) XandY[1];
               maxWidth = max((uint16_t)maxWidth, arrayChunk[0].as<uint16_t>());         // WLEDMM use native min/max
               maxHeight = max((uint16_t)maxHeight, arrayChunk[1].as<uint16_t>());       // WLEDMM
               arrayAndSize.array[arrayAndSize.size].x = arrayChunk[0].as<uint8_t>();
@@ -798,7 +804,7 @@ class JMapC {
 void Segment::createjMap() {
   if (!jMap) {
     DEBUG_PRINTLN("createjMap");
-    jMap = new JMapC();
+    jMap = new(std::nothrow) JMapC();
   }
 }
 
@@ -1704,14 +1710,14 @@ void WS2812FX::enumerateLedmaps() {
           if (len > 0 && len < 33) {
             (void) cleanUpName(name);
             len = strlen(name);
-            ledmapNames[i-1] = new char[len+1]; // +1 to include terminating \0 
+            ledmapNames[i-1] = new(std::nothrow) char[len+1]; // +1 to include terminating \0 
             if (ledmapNames[i-1]) strlcpy(ledmapNames[i-1], name, 33);
           }
           if (!ledmapNames[i-1]) {
             char tmp[33];
             snprintf_P(tmp, 32, PSTR("ledmap%d.json"), i);
             len = strlen(tmp);
-            ledmapNames[i-1] = new char[len+1];
+            ledmapNames[i-1] = new(std::nothrow) char[len+1];
             if (ledmapNames[i-1]) strlcpy(ledmapNames[i-1], tmp, 33);
           }
 
@@ -1908,7 +1914,7 @@ void WS2812FX::service() {
     if(nowUp >= seg.next_time || _triggered || (doShow && seg.mode == FX_MODE_STATIC))  // WLEDMM ">=" instead of ">"
     {
       if (seg.grouping == 0) seg.grouping = 1; //sanity check
-      doShow = true;
+      if (!seg.freeze) doShow = true;
       uint16_t frameDelay = FRAMETIME;    // WLEDMM avoid name clash with "delay" function
 
       if (!seg.freeze) { //only run effect function if not frozen
@@ -1932,7 +1938,9 @@ void WS2812FX::service() {
 
         if (frameDelay < speedLimit) frameDelay = FRAMETIME;                    // WLEDMM limit effects that want to go faster than target FPS
         if (seg.mode != FX_MODE_HALLOWEEN_EYES) seg.call++;
-        if (seg.transitional && frameDelay > FRAMETIME) frameDelay = FRAMETIME; // force faster updates during transition
+
+        if (seg.transitional && frameDelay > max(int(FRAMETIME), int(FRAMETIME_FIXED))) 
+          frameDelay = max(int(FRAMETIME), int(FRAMETIME_FIXED)); // force faster updates during transition // WLEDMM only if effect requested very slow updates
 
         seg.lastBri = seg.currentBri(seg.on ? seg.opacity:0);                   // WLEDMM remember for next time
         seg.handleTransition();
@@ -2638,7 +2646,7 @@ bool WS2812FX::deserializeMap(uint8_t n) {
     size_t size = max(ledmapMaxSize, size_t(Segment::maxWidth * Segment::maxHeight)); // TroyHacks
     USER_PRINTF("deserializemap customMappingTable alloc %u from %u\n", size, customMappingTableSize);
     //if (customMappingTable != nullptr) delete[] customMappingTable;
-    //customMappingTable = new uint16_t[size];
+    //customMappingTable = new(std::nothrow) uint16_t[size];
 
     // don't use new / delete
     if ((size > 0) && (customMappingTable != nullptr)) {
