@@ -6,7 +6,7 @@
     {
       "chipFamily": "ESP32-S3",
       "parts": [
-        { "path": "Apollo_M-1_Rev6_14.5.1.bin", "offset": 0 }
+        { "path": "Apollo_M-1_REv6_14.5.1.bin", "offset": 0 }
       ]
     }
   ]
