@@ -1,3 +1,10 @@
+## 📖 Documentation
+
+Full setup, integration, and troubleshooting guides live in the Apollo Wiki:
+**https://wiki.apolloautomation.com**
+
+---
+
 <p align="center">
   <img src="/images/wled_logo_akemi.png">
   <a href="https://github.com/MoonModules/WLED/releases"><img src="https://img.shields.io/github/release/MoonModules/WLED.svg?style=flat-square"></a>
